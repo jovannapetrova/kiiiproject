@@ -1,5 +1,5 @@
 {
-    "apiServer": {
-        "url": "http://localhost:3000"
-    }
+  "apiServer": {
+    "url": "http://quantum-backend:5000"
+  }
 }

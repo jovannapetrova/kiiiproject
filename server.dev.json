@@ -1,7 +1,7 @@
 {
     "name": "mern-minimal",
-    "host": "localhost",
-    "port": 3000,
+    "host": "0.0.0.0",
+    "port": 5000,
     "cookie" : {
         "domain": "",
         "secretKey": "cookie_sign_token",
@@ -16,10 +16,11 @@
         "expiry": "3600"
     },
     "apiServer": {
-        "url": "http://localhost:3000"
-    },
+  "url": "http://quantum-backend:5000"
+},
     "mongodb": {
-        "url": "mongodb://localhost:27017/mern-minimal",
-        "poolSize" : 10
-    }
+    "url": "mongodb://astro-database:27017/mern-minimal",
+    "poolSize" : 10
+	}
+
 }

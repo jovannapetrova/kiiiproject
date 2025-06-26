@@ -17,7 +17,7 @@ import { ChunkExtractor } from '@loadable/server';
 import mongoose from 'mongoose';
 import axios from "axios";
 import serverConfig from "./config.js";
-import csrf from "csurf";
+// import csrf from "csurf"; // НЕ го користиме csrf
 import serialize from 'serialize-javascript';
 import morgan from 'morgan';
 import logger from './middlewares/logger.js';
@@ -47,29 +47,6 @@ app.use(helmet());
 app.use(hpp());
 app.use(cookieParser());
 
-var csrfProtection;
-
-if (serverConfig.cookie.domain) {
-    csrfProtection = csrf({
-        cookie: {
-            domain: serverConfig.cookie.domain,
-            httpOnly: true
-        }
-    });
-} else {
-    csrfProtection = csrf({
-        cookie: {
-            httpOnly: true
-        }
-    });
-}
-
-app.use(function (err, req, res, next) {
-    if (err.code !== 'EBADCSRFTOKEN') return next(err);
-    logger.error(err);
-    res.status(403).json({ data: null, error: { subject: "csrf" }, message: "invalid csrf token" });
-});
-
 if (process.env.NODE_ENV == 'development') {
     app.use("/public", express.static(path.resolve(__dirname, './../../dist/client'), { maxAge: "10" }));
     app.use("/public", express.static(path.resolve(__dirname, './../../assets'), { maxAge: "10" }));
@@ -85,20 +62,11 @@ if (process.env.NODE_ENV == 'development') {
     app.use("/public", express.static(path.resolve(__dirname, './../../assets'), { maxAge: "30d" }));
 }
 
-/* api server routes (either on this server or a seperate server) */
-
-authRoutes.all('*', csrfProtection);
-commonRoutes.all('*', csrfProtection);
-
 app.use("/api", authRoutes);
 app.use("/api", commonRoutes);
 
-/* ---------------------------api server routes end-----------------*/
-
-app.post("/ui/login", csrfProtection, function (req, res) {
-
+app.post("/ui/login", function (req, res) {
     var data = req.body;
-
     axios.post(`${serverConfig.apiServer.url}/api/authToken`, data, { headers: req.headers }).then(function (_res) {
         if (serverConfig.cookie.domain) {
             res.cookie('auth_token', _res.data.data.token, { domain: serverConfig.cookie.domain, expires: new Date(_res.data.data.expiry * 1000), httpOnly: true });
@@ -112,7 +80,7 @@ app.post("/ui/login", csrfProtection, function (req, res) {
     });
 });
 
-app.post('/ui/logout', csrfProtection, function (req, res, next) {
+app.post('/ui/logout', function (req, res, next) {
     if (serverConfig.cookie.domain) {
         res.cookie('auth_token', "", { domain: serverConfig.cookie.domain, expires: new Date(0), httpOnly: true });
     } else {
@@ -121,25 +89,18 @@ app.post('/ui/logout', csrfProtection, function (req, res, next) {
     res.redirect("/");
 });
 
-app.get("/*", csrfProtection, function (req, res) {
-
+app.get("/*", function (req, res) {
     let auth_token = req.cookies.auth_token || null;
 
-    let _csrf_token = req.cookies._csrf_token || null;
+    // Нема _csrf_token сега затоа што нема CSRF заштита
+    let _csrf_token = null;
 
     validateAuthToken(auth_token, _csrf_token, req).then(function (session) {
-
         let initStore = session ? { session } : {};
-
         const store = configureStore(initStore);
-
         const branch = matchRoutes(createRoutes(store), req.path);
 
-        if (serverConfig.cookie.domain) {
-            res.cookie('_csrf_token', req.csrfToken(), { domain: serverConfig.cookie.domain, expires: new Date(new Date().getTime() + (serverConfig.csrf.expiry * 1000)) });
-        } else {
-            res.cookie('_csrf_token', req.csrfToken(), { expires: new Date(new Date().getTime() + (serverConfig.csrf.expiry * 1000)) });
-        }
+        // Нема поставување _csrf_token cookie
 
         const promises = branch.map(({ route, match }) => {
             if (route.loadData) {
@@ -151,13 +112,9 @@ app.get("/*", csrfProtection, function (req, res) {
         });
 
         return Promise.all(promises).then((data) => {
-
             let context = {};
-
             const statsFile = path.resolve(__dirname, "./../../dist/client/loadable-stats.json");
-
             const extractor = new ChunkExtractor({ statsFile, entrypoints: ["app"] });
-
             const jsx = extractor.collectChunks(
                 <Provider store={store}>
                     <StaticRouter context={context} location={req.url}>
@@ -169,29 +126,24 @@ app.get("/*", csrfProtection, function (req, res) {
             if (context.status === 404) {
                 return res.status(404);
             }
-
             if (context.status === 302) {
                 return res.redirect(302, context.url);
             }
-
             const reactDom = renderToString(jsx);
             const reduxState = store.getState();
 
             res.writeHead(200, { "Content-Type": "text/html" });
             res.end(renderFullPage(reactDom, reduxState, extractor));
-
         }).catch((err) => {
             logger.error(err);
             return res.status(500).end(err.toString());
         });
     });
-
 });
-
 
 function validateAuthToken(auth_token, _csrf_token, req) {
     return new Promise(function (resolve, reject) {
-        if (auth_token && _csrf_token) {
+        if (auth_token) { // Сега немаме _csrf_token
             axios.post(`${serverConfig.apiServer.url}/api/validateAuthToken?authToken=${auth_token}`, { authToken: auth_token }, { headers: req.headers }).then(function (res) {
                 resolve({
                     authenticated: true,
@@ -208,43 +160,30 @@ function validateAuthToken(auth_token, _csrf_token, req) {
     });
 }
 
-
 function renderFullPage(html, preloadedState, extractor) {
-
     const scriptTags = extractor.getScriptTags();
-
     // const linkTags = extractor.getLinkTags();
-
     const styleTags = extractor.getStyleTags();
 
     return `
     <!doctype html>
     <html>
       <head>
-
         <title>mern-minimal</title>
-
         <meta charset="utf-8"/>
         <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
-
         <link rel="icon" href="/public/images/favicon.png" type="image/gif" sizes="16x16"/>
-
         <!--[if IE gt 8]>
         <script crossorigin="anonymous" src="https://polyfill.io/v3/polyfill.min.js?features=EventSource"></script>
         <![endif]-->
-
         ${styleTags}
-        
       </head>
       <body>
         <div id="app">${html}</div>
-
         <script>
           window.__INITIAL_STATE__ = ${serialize(preloadedState)}
         </script>
-
         ${scriptTags}
-
       </body>
     </html>
     `
