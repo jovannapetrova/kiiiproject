@@ -1,0 +1,316 @@
+# 01-namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mern-minimal
+
+---
+# 02-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mongodb-config
+  namespace: mern-minimal
+data:
+  MONGO_INITDB_DATABASE: "mern-minimal"
+  MONGO_HOST: "astro-database"
+  MONGO_PORT: "27017"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: mern-minimal
+data:
+  NODE_ENV: "development"
+  DB_URI: "mongodb://astro-database:27017/mern-minimal"
+  BACKEND_URL: "http://quantum-backend:5000"
+  FRONTEND_URL: "http://nebula-frontend:3000"
+
+---
+# 03-secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secrets
+  namespace: mern-minimal
+type: Opaque
+data:
+  COOKIE_SECRET: Y29va2llX3NpZ25fdG9rZW4=
+
+---
+# 04-mongodb-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: astro-database
+  namespace: mern-minimal
+  labels:
+    app: astro-database
+spec:
+  serviceName: astro-database
+  replicas: 1
+  selector:
+    matchLabels:
+      app: astro-database
+  template:
+    metadata:
+      labels:
+        app: astro-database
+    spec:
+      containers:
+      - name: mongodb
+        image: mongo:6
+        ports:
+        - containerPort: 27017
+          name: mongodb
+        env:
+        - name: MONGO_INITDB_DATABASE
+          valueFrom:
+            configMapKeyRef:
+              name: mongodb-config
+              key: MONGO_INITDB_DATABASE
+        volumeMounts:
+        - name: mongodb-storage
+          mountPath: /data/db
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          tcpSocket:
+            port: 27017
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 27017
+          initialDelaySeconds: 5
+          periodSeconds: 5
+  volumeClaimTemplates:
+  - metadata:
+      name: mongodb-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 5Gi
+---
+# 05-mongodb-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: astro-database
+  namespace: mern-minimal
+  labels:
+    app: astro-database
+spec:
+  selector:
+    app: astro-database
+  ports:
+  - port: 27017
+    targetPort: 27017
+    name: mongodb
+  clusterIP: None
+
+---
+# 06-backend-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quantum-backend
+  namespace: mern-minimal
+  labels:
+    app: quantum-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: quantum-backend
+  template:
+    metadata:
+      labels:
+        app: quantum-backend
+    spec:
+      initContainers:
+      - name: wait-for-mongodb
+        image: busybox:1.35
+        command: ['sh', '-c', 'until nc -z astro-database 27017; do echo waiting for mongodb; sleep 2; done;']
+      containers:
+      - name: backend
+        image: quantum-backend:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 5000
+          name: http
+        env:
+        - name: NODE_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: NODE_ENV
+        - name: DB_URI
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: DB_URI
+        - name: COOKIE_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: COOKIE_SECRET
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+---
+# 07-backend-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: quantum-backend
+  namespace: mern-minimal
+  labels:
+    app: quantum-backend
+spec:
+  selector:
+    app: quantum-backend
+  ports:
+  - port: 5000
+    targetPort: 5000
+    name: http
+  type: ClusterIP
+
+---
+# 08-frontend-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nebula-frontend
+  namespace: mern-minimal
+  labels:
+    app: nebula-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nebula-frontend
+  template:
+    metadata:
+      labels:
+        app: nebula-frontend
+    spec:
+      initContainers:
+      - name: wait-for-backend
+        image: busybox:1.35
+        command: ['sh', '-c', 'until nc -z quantum-backend 5000; do echo waiting for backend; sleep 2; done;']
+      containers:
+      - name: frontend
+        image: nebula-frontend:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: NODE_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: NODE_ENV
+        - name: BACKEND_URL
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: BACKEND_URL
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 120
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 180
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+---
+# 09-frontend-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nebula-frontend
+  namespace: mern-minimal
+  labels:
+    app: nebula-frontend
+spec:
+  selector:
+    app: nebula-frontend
+  ports:
+  - port: 3000
+    targetPort: 3000
+    name: http
+  type: ClusterIP
+
+---
+# 10-ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mern-minimal-ingress
+  namespace: mern-minimal
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: mern-minimal.local
+    http:
+      paths:
+      # API routes - стрипни /api prefix
+      - path: /api(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: quantum-backend
+            port:
+              number: 5000
+      # /ui routes - остави ги како што се
+      - path: /ui
+        pathType: Prefix
+        backend:
+          service:
+            name: quantum-backend
+            port:
+              number: 5000
+      # Сè останато кон frontend
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: nebula-frontend
+            port:
+              number: 3000

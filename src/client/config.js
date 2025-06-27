@@ -13,7 +13,7 @@ if (process.env.NODE_ENV == 'production' && process.env.APP_ENV == 'production')
 
 const clientConfig = {
     apiServer: {
-        url: json.apiServer.url || "http://localhost:3000"
+        url: json.apiServer.url || "http://localhost:3000" ||  'http://mern-minimal.local'
     }
 };
 
