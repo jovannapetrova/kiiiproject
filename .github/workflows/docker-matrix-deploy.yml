@@ -22,7 +22,7 @@ jobs:
             context: .
             tag: jovana5rova/quantum-backend:latest
           - service: nebula-frontend
-            dockerfile: src/client/Dockerfile
+            dockerfile: src/client/clientDockerfile/Dockerfile
             context: .
             tag: jovana5rova/nebula-frontend:latest
 
