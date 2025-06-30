@@ -290,7 +290,6 @@ spec:
   - host: mern-minimal.local
     http:
       paths:
-      # API routes - стрипни /api prefix
       - path: /api(/|$)(.*)
         pathType: ImplementationSpecific
         backend:
@@ -298,7 +297,6 @@ spec:
             name: quantum-backend
             port:
               number: 5000
-      # /ui routes - остави ги како што се
       - path: /ui
         pathType: Prefix
         backend:
@@ -306,7 +304,6 @@ spec:
             name: quantum-backend
             port:
               number: 5000
-      # Сè останато кон frontend
       - path: /
         pathType: Prefix
         backend:
